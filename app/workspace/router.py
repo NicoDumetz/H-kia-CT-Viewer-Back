@@ -7,7 +7,7 @@
 # ██║  ██║███████╗██║  ██╗██║██║  ██║
 # ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝╚═╝  ╚═╝
 #
-# File        : config.py
+# File        : router.py
 # Project     : H-kia-CT-Viewer-Back
 # Author      : Nicolas Dumetz
 #
@@ -15,27 +15,24 @@
 #
 # =============================================================
 
-from functools import lru_cache
+from typing import Annotated
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from fastapi import APIRouter, Depends, HTTPException
 
-
-class Settings(BaseSettings):
-    storage_root: str = "storage/studies"
-    backend_public_url: str = "http://127.0.0.1:8000"
-    nnunet_enabled: bool = False
-    nnunet_predict_command: str = "nnUNetv2_predict"
-    nnunet_default_dataset: str = ""
-    nnunet_default_configuration: str = "3d_lowres"
-    nnunet_default_fold: str = "0"
-    nnunet_default_checkpoint: str = "checkpoint_best.pth"
-    nnunet_default_device: str = "cpu"
-    nnunet_timeout_seconds: int = 3600
-    ct_anatomy_labels_path: str = ""
-
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+from app.core.config import Settings, get_settings
+from app.workspace.schemas import StudyWorkspaceRead
+from app.workspace.service import WorkspaceError, get_study_workspace
 
 
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
+router = APIRouter(tags=["workspace"])
+
+
+@router.get("/studies/{study_id}/workspace", response_model=StudyWorkspaceRead)
+def get_study_workspace_endpoint(
+    study_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StudyWorkspaceRead:
+    try:
+        return get_study_workspace(study_id, settings)
+    except WorkspaceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc

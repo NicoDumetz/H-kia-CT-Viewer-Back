@@ -6,3 +6,5 @@ nibabel
 numpy
 python-multipart
 SimpleITK
+pytest
+httpx

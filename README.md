@@ -31,6 +31,12 @@ Réponse attendue :
 {"status":"ok"}
 ```
 
+## Tests automatises
+
+```bash
+python -m pytest -q
+```
+
 ## Test import NIfTI
 
 ```bash
