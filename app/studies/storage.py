@@ -35,6 +35,31 @@ def get_study_dir(storage_root: str, study_id: str) -> Path:
     return Path(storage_root) / study_id
 
 
+def get_source_dir(storage_root: str, study_id: str) -> Path:
+    return get_study_dir(storage_root, study_id) / "source"
+
+
+def resolve_study_file(storage_root: str, study_id: str, relative_path: str) -> Path | None:
+    study_dir = get_study_dir(storage_root, study_id).resolve()
+    requested_path = Path(relative_path)
+
+    if requested_path.is_absolute():
+        return None
+
+    if ".." in requested_path.parts:
+        return None
+
+    file_path = (study_dir / requested_path).resolve()
+
+    if not file_path.is_relative_to(study_dir):
+        return None
+
+    if not file_path.is_file():
+        return None
+
+    return file_path
+
+
 def list_study_dirs(storage_root: str) -> list[Path]:
     root = Path(storage_root)
 

@@ -50,3 +50,47 @@ class StudyListResponse(BaseModel):
 
 class StudyImportResponse(StudyRead):
     pass
+
+
+class ViewerFileRead(BaseModel):
+    filename: str
+    relative_path: str
+    url: str
+
+
+class ViewerNiftiRead(ViewerFileRead):
+    metadata: dict[str, Any]
+
+
+class ViewerDicomImageRead(ViewerFileRead):
+    image_id: str
+    instance_number: int | None
+    slice_location: float | None
+    image_position_patient: list[float] | None
+
+
+class ViewerDicomSeriesRead(BaseModel):
+    series_instance_uid: str | None
+    study_instance_uid: str | None
+    modality: str | None
+    series_description: str | None
+    protocol_name: str | None
+    manufacturer: str | None
+    files_count: int
+    rows: int | None
+    columns: int | None
+    slice_thickness: float | None
+    pixel_spacing: list[float] | None
+    images: list[ViewerDicomImageRead]
+
+
+class ViewerDicomRead(BaseModel):
+    series: list[ViewerDicomSeriesRead]
+
+
+class StudyViewerRead(BaseModel):
+    study_id: str
+    input_type: InputType
+    status: Literal["ready"]
+    nifti: ViewerNiftiRead | None
+    dicom: ViewerDicomRead | None

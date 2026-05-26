@@ -31,14 +31,17 @@ from app.studies.schemas import (
     StudyImportResponse,
     StudyListResponse,
     StudyRead,
+    StudyViewerRead,
 )
 from app.studies.storage import (
     create_source_dir,
     create_study_id,
     get_study_dir,
     list_study_dirs,
+    resolve_study_file,
     save_upload_files,
 )
+from app.studies.viewer import build_study_viewer
 
 
 async def import_study(files: list[UploadFile], settings: Settings) -> StudyImportResponse:
@@ -82,6 +85,19 @@ def get_study(study_id: str, settings: Settings) -> StudyRead | None:
         return None
 
     return read_manifest(study_dir)
+
+
+def get_study_viewer(study_id: str, settings: Settings) -> StudyViewerRead | None:
+    study = get_study(study_id, settings)
+
+    if study is None:
+        return None
+
+    return build_study_viewer(study, settings)
+
+
+def get_study_file_path(study_id: str, relative_path: str, settings: Settings) -> Path | None:
+    return resolve_study_file(settings.storage_root, study_id, relative_path)
 
 
 def extract_metadata(paths: list[Path], input_type: InputType) -> dict[str, Any]:
