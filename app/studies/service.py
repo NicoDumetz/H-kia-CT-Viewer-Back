@@ -15,6 +15,7 @@
 #
 # =============================================================
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,24 +25,63 @@ from fastapi import UploadFile
 
 from app.core.config import Settings
 from app.studies.detector import detect_file_type, detect_input_type
-from app.studies.schemas import InputType, StudyImportResponse
-from app.studies.storage import create_source_dir, create_study_id, save_upload_files
+from app.studies.manifest import build_source_files, read_manifest, to_list_item, write_manifest
+from app.studies.schemas import (
+    InputType,
+    StudyImportResponse,
+    StudyListResponse,
+    StudyRead,
+)
+from app.studies.storage import (
+    create_source_dir,
+    create_study_id,
+    get_study_dir,
+    list_study_dirs,
+    save_upload_files,
+)
 
 
 async def import_study(files: list[UploadFile], settings: Settings) -> StudyImportResponse:
     study_id = create_study_id()
     source_dir = create_source_dir(settings.storage_root, study_id)
+    study_dir = source_dir.parent
     saved_paths = await save_upload_files(files, source_dir)
     input_type = detect_input_type(saved_paths)
     metadata = extract_metadata(saved_paths, input_type)
+    now = datetime.now(timezone.utc)
+    source_files = build_source_files(study_dir, saved_paths)
 
-    return StudyImportResponse(
+    study = StudyImportResponse(
         id=study_id,
         status="imported",
         input_type=input_type,
         files_count=len(saved_paths),
         metadata=metadata,
+        created_at=now,
+        updated_at=now,
+        source_files=source_files,
     )
+
+    write_manifest(study_dir, study)
+    return study
+
+
+def list_studies(settings: Settings) -> StudyListResponse:
+    study_dirs = list_study_dirs(settings.storage_root)
+    studies = [study for study in (read_manifest(path) for path in study_dirs) if study]
+    items = [to_list_item(study) for study in studies]
+    sorted_items = sorted(items, key=lambda item: item.created_at, reverse=True)
+
+    return StudyListResponse(items=sorted_items)
+
+
+def get_study(study_id: str, settings: Settings) -> StudyRead | None:
+    study_dir = get_study_dir(settings.storage_root, study_id)
+
+    if not study_dir.is_dir():
+        return None
+
+    return read_manifest(study_dir)
 
 
 def extract_metadata(paths: list[Path], input_type: InputType) -> dict[str, Any]:

@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+storage/studies/*
+!storage/studies/.gitkeep

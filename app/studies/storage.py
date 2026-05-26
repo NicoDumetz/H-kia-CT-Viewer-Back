@@ -31,6 +31,19 @@ def create_source_dir(storage_root: str, study_id: str) -> Path:
     return source_dir
 
 
+def get_study_dir(storage_root: str, study_id: str) -> Path:
+    return Path(storage_root) / study_id
+
+
+def list_study_dirs(storage_root: str) -> list[Path]:
+    root = Path(storage_root)
+
+    if not root.is_dir():
+        return []
+
+    return [path for path in root.iterdir() if path.is_dir()]
+
+
 def safe_filename(filename: str) -> str:
     name = Path(filename).name
     return name or "upload.bin"
