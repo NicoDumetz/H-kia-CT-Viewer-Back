@@ -39,6 +39,12 @@ def get_source_dir(storage_root: str, study_id: str) -> Path:
     return get_study_dir(storage_root, study_id) / "source"
 
 
+def create_volume_dir(storage_root: str, study_id: str) -> Path:
+    volume_dir = get_study_dir(storage_root, study_id) / "derived" / "volume"
+    volume_dir.mkdir(parents=True, exist_ok=True)
+    return volume_dir
+
+
 def resolve_study_file(storage_root: str, study_id: str, relative_path: str) -> Path | None:
     study_dir = get_study_dir(storage_root, study_id).resolve()
     requested_path = Path(relative_path)

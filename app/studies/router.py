@@ -24,16 +24,21 @@ from app.core.config import Settings, get_settings
 from app.studies.schemas import (
     StudyImportResponse,
     StudyListResponse,
+    StudyPrepareResponse,
     StudyRead,
     StudyViewerRead,
+    StudyVolumeRead,
 )
 from app.studies.service import (
+    get_volume,
     get_study,
     get_study_file_path,
     get_study_viewer,
     import_study,
     list_studies,
+    prepare_volume,
 )
+from app.studies.volume import VolumeError
 
 
 router = APIRouter(prefix="/studies", tags=["studies"])
@@ -58,6 +63,44 @@ async def import_study_endpoint(
         )
 
     return await import_study(files, settings)
+
+
+@router.post("/{study_id}/prepare", response_model=StudyPrepareResponse)
+def prepare_study_endpoint(
+    study_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StudyPrepareResponse:
+    try:
+        response = prepare_volume(study_id, settings)
+    except VolumeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    if response is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Study not found.",
+        )
+
+    return StudyPrepareResponse.model_validate(response.model_dump())
+
+
+@router.get("/{study_id}/volume", response_model=StudyVolumeRead)
+def get_study_volume_endpoint(
+    study_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StudyVolumeRead:
+    try:
+        response = get_volume(study_id, settings)
+    except VolumeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    if response is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Study not found.",
+        )
+
+    return response
 
 
 @router.get("/{study_id}/viewer", response_model=StudyViewerRead)

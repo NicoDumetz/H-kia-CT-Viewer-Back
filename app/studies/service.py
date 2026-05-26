@@ -32,6 +32,7 @@ from app.studies.schemas import (
     StudyListResponse,
     StudyRead,
     StudyViewerRead,
+    StudyVolumeRead,
 )
 from app.studies.storage import (
     create_source_dir,
@@ -42,6 +43,7 @@ from app.studies.storage import (
     save_upload_files,
 )
 from app.studies.viewer import build_study_viewer
+from app.studies.volume import get_prepared_volume, prepare_study_volume
 
 
 async def import_study(files: list[UploadFile], settings: Settings) -> StudyImportResponse:
@@ -54,7 +56,7 @@ async def import_study(files: list[UploadFile], settings: Settings) -> StudyImpo
     now = datetime.now(timezone.utc)
     source_files = build_source_files(study_dir, saved_paths)
 
-    study = StudyImportResponse(
+    study = StudyRead(
         id=study_id,
         status="imported",
         input_type=input_type,
@@ -66,7 +68,7 @@ async def import_study(files: list[UploadFile], settings: Settings) -> StudyImpo
     )
 
     write_manifest(study_dir, study)
-    return study
+    return StudyImportResponse.model_validate(study.model_dump())
 
 
 def list_studies(settings: Settings) -> StudyListResponse:
@@ -94,6 +96,24 @@ def get_study_viewer(study_id: str, settings: Settings) -> StudyViewerRead | Non
         return None
 
     return build_study_viewer(study, settings)
+
+
+def prepare_volume(study_id: str, settings: Settings) -> StudyVolumeRead | None:
+    study = get_study(study_id, settings)
+
+    if study is None:
+        return None
+
+    return prepare_study_volume(study, settings)
+
+
+def get_volume(study_id: str, settings: Settings) -> StudyVolumeRead | None:
+    study = get_study(study_id, settings)
+
+    if study is None:
+        return None
+
+    return get_prepared_volume(study, settings)
 
 
 def get_study_file_path(study_id: str, relative_path: str, settings: Settings) -> Path | None:

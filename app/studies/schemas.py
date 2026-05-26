@@ -19,9 +19,11 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from pydantic import ConfigDict
 
 
 InputType = Literal["dicom", "dicomdir", "nifti", "unknown"]
+StudyStatus = Literal["imported", "prepared"]
 
 
 class StudyFileRead(BaseModel):
@@ -32,7 +34,7 @@ class StudyFileRead(BaseModel):
 
 class StudyListItem(BaseModel):
     id: str = Field(..., description="Study identifier")
-    status: Literal["imported"]
+    status: StudyStatus
     input_type: InputType
     files_count: int
     metadata: dict[str, Any]
@@ -40,16 +42,24 @@ class StudyListItem(BaseModel):
     updated_at: datetime
 
 
+class StudyPreparedVolumeManifestRead(BaseModel):
+    filename: str
+    relative_path: str
+    metadata_path: str
+
+
 class StudyRead(StudyListItem):
     source_files: list[StudyFileRead]
+    prepared_volume: StudyPreparedVolumeManifestRead | None = None
 
 
 class StudyListResponse(BaseModel):
     items: list[StudyListItem]
 
 
-class StudyImportResponse(StudyRead):
-    pass
+class StudyImportResponse(StudyListItem):
+    status: Literal["imported"]
+    source_files: list[StudyFileRead]
 
 
 class ViewerFileRead(BaseModel):
@@ -94,3 +104,41 @@ class StudyViewerRead(BaseModel):
     status: Literal["ready"]
     nifti: ViewerNiftiRead | None
     dicom: ViewerDicomRead | None
+
+
+class VolumeIntensityRead(BaseModel):
+    min: float
+    max: float
+    mean: float
+    median: float
+    p1: float
+    p5: float
+    p95: float
+    p99: float
+
+
+class VolumeMetadataRead(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    shape: list[int]
+    spacing: list[float]
+    origin: list[float] | None = None
+    direction: list[float] | None = None
+    intensity: VolumeIntensityRead
+
+
+class PreparedVolumeRead(BaseModel):
+    filename: str
+    relative_path: str
+    url: str
+    metadata: VolumeMetadataRead
+
+
+class StudyVolumeRead(BaseModel):
+    study_id: str
+    status: str
+    volume: PreparedVolumeRead
+
+
+class StudyPrepareResponse(StudyVolumeRead):
+    pass

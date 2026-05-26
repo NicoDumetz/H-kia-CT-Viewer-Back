@@ -5,3 +5,4 @@ pydicom
 nibabel
 numpy
 python-multipart
+SimpleITK
