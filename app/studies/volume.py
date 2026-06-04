@@ -62,11 +62,8 @@ def prepare_study_volume(study: StudyRead, settings: Settings) -> StudyVolumeRea
     if study.input_type == "nifti":
         return prepare_nifti_volume(study, settings)
 
-    if study.input_type == "dicom":
+    if study.input_type in {"dicom", "dicomdir"}:
         return prepare_dicom_volume(study, settings)
-
-    if study.input_type == "dicomdir":
-        raise VolumeError("DICOMDIR preparation is not implemented yet")
 
     raise VolumeError("Unknown input type cannot be prepared")
 
@@ -109,6 +106,12 @@ def prepare_dicom_volume(study: StudyRead, settings: Settings) -> StudyVolumeRea
     volume_dir = create_volume_dir(settings.storage_root, study.id)
     output_path = volume_dir / VOLUME_FILENAME
     entries = read_dicom_entries(source_dir)
+
+    if not entries and has_dicomdir_file(source_dir):
+        raise VolumeError(
+            "DICOMDIR alone does not contain pixel data. Upload associated DICOM files."
+        )
+
     selected_entries = select_dicom_series(entries)
     selected_paths = [str(entry.path) for entry in sort_dicom_entries(selected_entries)]
 
@@ -255,12 +258,22 @@ def read_dicom_entries(source_dir: Path) -> list[DicomVolumeEntry]:
     entries: list[DicomVolumeEntry] = []
 
     for path in paths:
+        if path.name.upper() == "DICOMDIR":
+            continue
+
         entry = read_dicom_entry(path)
 
         if entry is not None:
             entries.append(entry)
 
     return entries
+
+
+def has_dicomdir_file(source_dir: Path) -> bool:
+    return any(
+        path.is_file() and path.name.upper() == "DICOMDIR"
+        for path in source_dir.rglob("*")
+    )
 
 
 def read_dicom_entry(path: Path) -> DicomVolumeEntry | None:

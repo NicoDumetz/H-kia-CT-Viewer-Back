@@ -123,7 +123,7 @@ def build_available_actions(
     segmentations: list[Any],
 ) -> WorkspaceAvailableActionsRead:
     return WorkspaceAvailableActionsRead(
-        can_prepare_volume=(not volume_prepared and input_type in {"dicom", "nifti"}),
+        can_prepare_volume=(not volume_prepared and input_type in {"dicom", "dicomdir", "nifti"}),
         can_create_ai_run=volume_prepared,
         can_execute_ai=has_available_nnunet_module(modules),
         can_publish_segmentation=has_publishable_segmentation_run(runs),

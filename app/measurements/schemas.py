@@ -11,54 +11,39 @@
 # Project     : H-kia-CT-Viewer-Back
 # Author      : Nicolas Dumetz
 #
-# Created     : Tuesday May 26 2026
+# Created     : Thursday June 04 2026
 #
 # =============================================================
 
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
 
 
-class SegmentationFileRead(BaseModel):
-    filename: str
-    relative_path: str
-    url: str
+MeasurementPlane = Literal["axial", "sagittal", "coronal"]
 
 
-class SegmentationBBoxRead(BaseModel):
-    min: list[int]
-    max: list[int]
+class HuCircleMeasurementCreate(BaseModel):
+    plane: MeasurementPlane
+    center_world: list[float]
+    edge_world: list[float] | None = None
+    radius_mm: float | None = None
 
 
-class SegmentationLabelRead(BaseModel):
-    label_id: int
-    name: str
+class HuCircleStatsRead(BaseModel):
+    mean: float
+    median: float
+    std: float
+    min: float
+    max: float
+    p5: float
+    p95: float
+
+
+class HuCircleMeasurementRead(BaseModel):
+    plane: MeasurementPlane
+    center_world: list[float]
+    radius_mm: float
     voxel_count: int
-    volume_mm3: float
-    bbox_ijk: SegmentationBBoxRead
-    center_ijk: list[float]
-
-
-class SegmentationMetadataRead(BaseModel):
-    shape: list[int]
-    spacing: list[float]
-    labels_count: int
-    labels: list[SegmentationLabelRead]
-
-
-class SegmentationRead(BaseModel):
-    id: str
-    study_id: str
-    source_run_id: str | None
-    module_id: str
-    module_name: str
-    status: Literal["ready"]
-    created_at: datetime
-    file: SegmentationFileRead
-    metadata: SegmentationMetadataRead
-
-
-class SegmentationListResponse(BaseModel):
-    items: list[SegmentationRead]
+    area_mm2: float
+    hu: HuCircleStatsRead

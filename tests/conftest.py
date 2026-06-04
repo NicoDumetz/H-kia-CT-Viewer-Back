@@ -55,8 +55,9 @@ class AsgiTestClient:
         url: str,
         json: dict | None = None,
         files: dict | None = None,
+        data: dict | None = None,
     ) -> AsgiResponse:
-        return self.request("POST", url, json=json, files=files)
+        return self.request("POST", url, json=json, files=files, data=data)
 
     def head(self, url: str) -> AsgiResponse:
         return self.request("HEAD", url)
@@ -67,8 +68,9 @@ class AsgiTestClient:
         url: str,
         json: dict | None = None,
         files: dict | None = None,
+        data: dict | None = None,
     ) -> AsgiResponse:
-        body, headers = build_request_body(json=json, files=files)
+        body, headers = build_request_body(json=json, files=files, data=data)
 
         return asyncio.run(self._call_app(method, url, body, headers))
 
@@ -117,9 +119,10 @@ class AsgiTestClient:
 def build_request_body(
     json: dict | None = None,
     files: dict | None = None,
+    data: dict | None = None,
 ) -> tuple[bytes, list[tuple[bytes, bytes]]]:
     if files is not None:
-        body, content_type = build_multipart_body(files)
+        body, content_type = build_multipart_body(files, data)
         return body, [
             (b"content-type", content_type.encode("utf-8")),
             (b"content-length", str(len(body)).encode("ascii")),
@@ -135,9 +138,21 @@ def build_request_body(
     return b"", [(b"content-length", b"0")]
 
 
-def build_multipart_body(files: dict) -> tuple[bytes, str]:
+def build_multipart_body(files: dict, data: dict | None = None) -> tuple[bytes, str]:
     boundary = "test-boundary"
     chunks: list[bytes] = []
+
+    for field_name, value in (data or {}).items():
+        chunks.extend(
+            [
+                f"--{boundary}\r\n".encode("utf-8"),
+                f'Content-Disposition: form-data; name="{field_name}"\r\n\r\n'.encode(
+                    "utf-8"
+                ),
+                str(value).encode("utf-8"),
+                b"\r\n",
+            ]
+        )
 
     for field_name, value in files.items():
         filename, file_obj, content_type = value
@@ -209,6 +224,27 @@ def synthetic_nifti_path(tmp_path: Path) -> Path:
     image = nib.Nifti1Image(array, affine)
 
     nib.save(image, str(path))
+    return path
+
+
+@pytest.fixture()
+def synthetic_segmentation_path(tmp_path: Path) -> Path:
+    path = tmp_path / "mask.nii.gz"
+    array = np.zeros((8, 8, 8), dtype=np.uint8)
+    affine = np.diag([1.0, 1.0, 2.0, 1.0])
+
+    array[1:4, 1:4, 1:4] = 1
+    array[5:7, 5:7, 5:7] = 2
+    nib.save(nib.Nifti1Image(array, affine), str(path))
+    return path
+
+
+@pytest.fixture()
+def mismatched_segmentation_path(tmp_path: Path) -> Path:
+    path = tmp_path / "mask_mismatch.nii.gz"
+    array = np.ones((4, 4, 4), dtype=np.uint8)
+
+    nib.save(nib.Nifti1Image(array, np.eye(4)), str(path))
     return path
 
 
@@ -319,6 +355,22 @@ def create_hu_analysis(client: AsgiTestClient):
         return response.json()
 
     return _create_hu_analysis
+
+
+@pytest.fixture()
+def upload_manual_segmentation(client: AsgiTestClient, synthetic_segmentation_path: Path):
+    def _upload_manual_segmentation(study_id: str) -> dict:
+        with synthetic_segmentation_path.open("rb") as file:
+            response = client.post(
+                f"/studies/{study_id}/segmentations/upload",
+                files={"file": (synthetic_segmentation_path.name, file, "application/gzip")},
+                data={"name": "Segmentation externe"},
+            )
+
+        assert response.status_code == 200
+        return response.json()
+
+    return _upload_manual_segmentation
 
 
 @pytest.fixture()

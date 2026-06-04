@@ -17,7 +17,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.core.config import Settings, get_settings
 from app.segmentations.schemas import SegmentationListResponse, SegmentationRead
@@ -26,6 +26,7 @@ from app.segmentations.service import (
     get_study_segmentation,
     list_study_segmentations,
     publish_run_segmentation,
+    upload_manual_segmentation,
 )
 
 
@@ -43,6 +44,20 @@ def publish_run_segmentation_endpoint(
 ) -> SegmentationRead:
     try:
         return publish_run_segmentation(study_id, run_id, settings)
+    except SegmentationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.post("/studies/{study_id}/segmentations/upload", response_model=SegmentationRead)
+async def upload_manual_segmentation_endpoint(
+    study_id: str,
+    file: Annotated[UploadFile, File()],
+    settings: Annotated[Settings, Depends(get_settings)],
+    name: Annotated[str | None, Form()] = None,
+    source: Annotated[str, Form()] = "manual_upload",
+) -> SegmentationRead:
+    try:
+        return await upload_manual_segmentation(study_id, file, name, source, settings)
     except SegmentationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
