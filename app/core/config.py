@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     nnunet_default_device: str = "cpu"
     nnunet_lowres_spacing_mm: float = 1.9001551220814243
     nnunet_timeout_seconds: int = 3600
+    nnunet_num_preprocessing_processes: int = 1
+    nnunet_num_segmentation_export_processes: int = 1
     ct_anatomy_labels_path: str = ""
     storage_tmp_ttl_hours: int = 24
 

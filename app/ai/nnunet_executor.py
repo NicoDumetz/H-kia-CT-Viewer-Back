@@ -61,6 +61,8 @@ class ResolvedNnunetConfig:
     checkpoint: str
     device: str
     timeout_seconds: int
+    num_preprocessing_processes: int
+    num_segmentation_export_processes: int
 
 
 @dataclass(frozen=True)
@@ -270,6 +272,8 @@ def resolve_nnunet_config(
         checkpoint=checkpoint,
         device=device.strip().lower(),
         timeout_seconds=settings.nnunet_timeout_seconds,
+        num_preprocessing_processes=max(1, settings.nnunet_num_preprocessing_processes),
+        num_segmentation_export_processes=max(1, settings.nnunet_num_segmentation_export_processes),
     )
 
 
@@ -277,6 +281,13 @@ def build_nnunet_case_id(study_id: str) -> str:
     safe_id = sub(r"[^A-Za-z0-9_]", "", study_id)
 
     return f"case_{safe_id}"
+
+
+def build_nnunet_job_dir(run: AiRunRead) -> Path:
+    safe_module_id = sub(r"[^A-Za-z0-9_]", "_", run.module_id).strip("_") or "unknown_model"
+    safe_run_id = sub(r"[^A-Za-z0-9_]", "_", run.id).strip("_") or "unknown_run"
+
+    return get_backend_root() / "temp" / "nnunet" / safe_module_id / safe_run_id
 
 
 def prepare_nnunet_input(
@@ -288,7 +299,7 @@ def prepare_nnunet_input(
     case_id = build_nnunet_case_id(run.study_id)
     study_dir = resolve_absolute_path(study_dir)
     run_dir = resolve_absolute_path(run_dir)
-    job_dir = study_dir / "tmp" / "jobs" / run.id
+    job_dir = build_nnunet_job_dir(run)
     input_dir = job_dir / "input"
     lowres_dir = job_dir / "lowres"
     output_lowres_dir = job_dir / "output_lowres"
@@ -451,9 +462,9 @@ def build_nnunet_command(
         config.device,
         "--disable_tta",
         "-npp",
-        "1",
+        str(config.num_preprocessing_processes),
         "-nps",
-        "1",
+        str(config.num_segmentation_export_processes),
     ]
 
 
@@ -689,7 +700,7 @@ def resample_ct_image(image: sitk.Image, spacing: tuple[float, float, float]) ->
     resampler.SetOutputOrigin(image.GetOrigin())
     resampler.SetTransform(sitk.Transform())
     resampler.SetInterpolator(sitk.sitkLinear)
-    resampler.SetDefaultPixelValue(float(sitk.GetArrayViewFromImage(image).min()))
+    resampler.SetDefaultPixelValue(-1024)
 
     return resampler.Execute(image)
 
@@ -730,7 +741,8 @@ def save_sitk_mask_with_original_affine(
     if not is_integer_label_array(array_xyz):
         raise NnunetExecutionError("nnU-Net mask contains non-integer labels after resampling")
 
-    label_array = np.rint(array_xyz).astype(np.int16)
+    rounded_array = np.rint(array_xyz)
+    label_array = rounded_array.astype(get_compact_label_dtype(rounded_array))
     header = original_nib.header.copy()
     header.set_data_dtype(label_array.dtype)
     nib.save(nib.Nifti1Image(label_array, original_nib.affine, header), str(output_path))
@@ -762,6 +774,19 @@ def is_integer_label_array(array: np.ndarray) -> bool:
         return False
 
     return bool(np.allclose(array, np.rint(array), atol=0.0, rtol=0.0))
+
+
+def get_compact_label_dtype(array: np.ndarray) -> np.dtype:
+    min_value = int(array.min(initial=0))
+    max_value = int(array.max(initial=0))
+
+    if min_value >= 0 and max_value <= np.iinfo(np.uint8).max:
+        return np.dtype(np.uint8)
+
+    if min_value >= 0 and max_value <= np.iinfo(np.uint16).max:
+        return np.dtype(np.uint16)
+
+    return np.dtype(np.int32)
 
 
 def decode_output(output: str | bytes | None) -> str:

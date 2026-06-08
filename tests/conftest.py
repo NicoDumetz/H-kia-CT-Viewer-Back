@@ -210,6 +210,8 @@ def test_settings(tmp_path: Path) -> Settings:
         nnunet_default_device="cpu",
         nnunet_lowres_spacing_mm=1.9001551220814243,
         nnunet_timeout_seconds=3600,
+        nnunet_num_preprocessing_processes=1,
+        nnunet_num_segmentation_export_processes=1,
         ct_anatomy_labels_path="",
         storage_tmp_ttl_hours=24,
     )

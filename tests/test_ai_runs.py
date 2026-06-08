@@ -441,6 +441,7 @@ def test_execute_nnunet_uses_absolute_lowres_input_and_resamples_final_mask(
     assert (job_dir / "final").is_dir()
     assert (job_dir / "logs").is_dir()
     assert final_mask.shape == original_ct.shape
+    assert final_mask.header.get_data_dtype() == np.dtype(np.uint8)
     assert np.allclose(final_array, np.rint(final_array), atol=0.0, rtol=0.0)
 
 
