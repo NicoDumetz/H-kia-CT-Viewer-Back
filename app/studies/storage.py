@@ -15,6 +15,8 @@
 #
 # =============================================================
 
+import shutil
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -31,12 +33,60 @@ def create_source_dir(storage_root: str, study_id: str) -> Path:
     return source_dir
 
 
+def create_source_subdir(storage_root: str, study_id: str, relative_path: str) -> Path:
+    study_dir = get_study_dir(storage_root, study_id)
+    requested_path = Path(relative_path)
+
+    if requested_path.is_absolute() or ".." in requested_path.parts:
+        raise ValueError("Invalid source directory")
+
+    source_dir = study_dir / requested_path
+    source_dir.mkdir(parents=True, exist_ok=False)
+    return source_dir
+
+
 def get_study_dir(storage_root: str, study_id: str) -> Path:
     return Path(storage_root) / study_id
 
 
 def get_source_dir(storage_root: str, study_id: str) -> Path:
     return get_study_dir(storage_root, study_id) / "source"
+
+
+def get_tmp_jobs_dir(storage_root: str, study_id: str) -> Path:
+    return get_study_dir(storage_root, study_id) / "tmp" / "jobs"
+
+
+def create_tmp_job_dir(storage_root: str, study_id: str, job_id: str) -> Path:
+    job_dir = get_tmp_jobs_dir(storage_root, study_id) / job_id
+    job_dir.mkdir(parents=True, exist_ok=False)
+    return job_dir
+
+
+def cleanup_expired_tmp_jobs(storage_root: str, max_age_hours: int) -> list[Path]:
+    root = Path(storage_root)
+
+    if not root.is_dir():
+        return []
+
+    deleted: list[Path] = []
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+
+    for jobs_dir in root.glob("*/tmp/jobs"):
+        if not jobs_dir.is_dir():
+            continue
+
+        for job_dir in jobs_dir.iterdir():
+            if not job_dir.is_dir():
+                continue
+
+            modified_at = datetime.fromtimestamp(job_dir.stat().st_mtime, tz=timezone.utc)
+
+            if modified_at < cutoff:
+                shutil.rmtree(job_dir, ignore_errors=True)
+                deleted.append(job_dir)
+
+    return deleted
 
 
 def create_volume_dir(storage_root: str, study_id: str) -> Path:

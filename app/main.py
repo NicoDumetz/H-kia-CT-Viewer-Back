@@ -36,14 +36,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(studies_router)
-app.include_router(ai_router)
-app.include_router(segmentations_router)
-app.include_router(analyses_router)
-app.include_router(measurements_router)
-app.include_router(workspace_router)
+for router in (
+    studies_router,
+    ai_router,
+    segmentations_router,
+    analyses_router,
+    measurements_router,
+    workspace_router,
+):
+    app.include_router(router)
+    app.include_router(router, prefix="/api")
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/health")
+def api_health() -> dict[str, str]:
+    return health()

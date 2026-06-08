@@ -23,7 +23,7 @@ from pydantic import ConfigDict
 
 
 InputType = Literal["dicom", "dicomdir", "nifti", "unknown"]
-StudyStatus = Literal["imported", "prepared"]
+StudyStatus = Literal["imported", "preparing", "prepared", "failed"]
 
 
 class StudyFileRead(BaseModel):
@@ -40,6 +40,7 @@ class StudyListItem(BaseModel):
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    error: str | None = None
 
 
 class StudyPreparedVolumeManifestRead(BaseModel):

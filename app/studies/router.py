@@ -30,6 +30,7 @@ from app.studies.schemas import (
     StudyVolumeRead,
 )
 from app.studies.service import (
+    cleanup_expired_tmp_jobs,
     get_volume,
     get_study,
     get_study_file_path,
@@ -37,6 +38,8 @@ from app.studies.service import (
     import_study,
     list_studies,
     prepare_volume,
+    upload_dicom_study,
+    upload_nifti_study,
 )
 from app.studies.volume import VolumeError
 
@@ -63,6 +66,47 @@ async def import_study_endpoint(
         )
 
     return await import_study(files, settings)
+
+
+@router.post("/upload-nifti", response_model=StudyPrepareResponse)
+async def upload_nifti_endpoint(
+    file: Annotated[UploadFile, File()],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StudyPrepareResponse:
+    try:
+        response = await upload_nifti_study(file, settings)
+    except VolumeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    return StudyPrepareResponse.model_validate(response.model_dump())
+
+
+@router.post("/upload-dicom", response_model=StudyPrepareResponse)
+async def upload_dicom_endpoint(
+    files: Annotated[list[UploadFile], File()],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StudyPrepareResponse:
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one file is required.",
+        )
+
+    try:
+        response = await upload_dicom_study(files, settings)
+    except VolumeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    return StudyPrepareResponse.model_validate(response.model_dump())
+
+
+@router.post("/storage/cleanup")
+def cleanup_storage_endpoint(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, int]:
+    deleted = cleanup_expired_tmp_jobs(settings)
+
+    return {"deleted_tmp_jobs": deleted}
 
 
 @router.post("/{study_id}/prepare", response_model=StudyPrepareResponse)

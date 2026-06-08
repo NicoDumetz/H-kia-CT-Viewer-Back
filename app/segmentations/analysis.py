@@ -21,7 +21,7 @@ from typing import Any
 import nibabel as nib
 import numpy as np
 
-from app.segmentations.labels import get_label_name
+from app.segmentations.labels import get_label_color, get_label_group, get_label_name
 from app.segmentations.schemas import (
     SegmentationBBoxRead,
     SegmentationLabelRead,
@@ -50,6 +50,7 @@ def compute_segmentation_metadata(
     label_names: dict[int, str],
 ) -> SegmentationMetadataRead:
     image, array = load_segmentation_array(path)
+    validate_segmentation_array(array)
     spacing = [float(value) for value in image.header.get_zooms()[: array.ndim]]
     labels = compute_label_stats(array, spacing, label_names)
 
@@ -57,8 +58,29 @@ def compute_segmentation_metadata(
         shape=[int(value) for value in array.shape],
         spacing=spacing,
         labels_count=len(labels),
+        present_labels_count=len(labels),
         labels=labels,
     )
+
+
+def validate_segmentation_array(array: np.ndarray) -> None:
+    if array.ndim != 3:
+        raise SegmentationAnalysisError("Segmentation mask must be a 3D NIfTI volume")
+
+    if not contains_integer_labels(array):
+        raise SegmentationAnalysisError("Segmentation mask must contain integer labels")
+
+
+def contains_integer_labels(array: np.ndarray) -> bool:
+    if np.issubdtype(array.dtype, np.integer):
+        return True
+
+    finite = np.isfinite(array)
+
+    if not bool(np.all(finite)):
+        return False
+
+    return bool(np.allclose(array, np.rint(array), atol=0.0, rtol=0.0))
 
 
 def compute_label_stats(
@@ -72,14 +94,20 @@ def compute_label_stats(
 
     for label_value in label_values:
         label_id = int(label_value)
+        label_name = get_label_name(label_id, label_names)
         coordinates = np.argwhere(array == label_value)
         voxel_count = int(coordinates.shape[0])
         labels.append(
             SegmentationLabelRead(
+                id=label_id,
                 label_id=label_id,
-                name=get_label_name(label_id, label_names),
+                name=label_name,
+                group=get_label_group(label_name),
+                present=True,
                 voxel_count=voxel_count,
                 volume_mm3=float(voxel_count * voxel_volume),
+                color=get_label_color(label_id),
+                opacity=0.45,
                 bbox_ijk=compute_bbox(coordinates),
                 center_ijk=compute_center(coordinates),
             )

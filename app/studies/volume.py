@@ -16,6 +16,8 @@
 # =============================================================
 
 import json
+import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -93,12 +95,19 @@ def prepare_nifti_volume(study: StudyRead, settings: Settings) -> StudyVolumeRea
 
     try:
         image = nib.load(str(source_path))
+        validate_nifti_volume(image)
         nib.save(image, str(output_path))
         metadata = compute_nifti_volume_metadata(image)
+        metadata["source_type"] = "nifti"
     except Exception as exc:
         raise VolumeError(f"Failed to prepare NIfTI volume: {exc}") from exc
 
     return persist_prepared_volume(study, settings, metadata)
+
+
+def validate_nifti_volume(image: nib.Nifti1Image) -> None:
+    if len(image.shape) != 3:
+        raise VolumeError("NIfTI CT volume must be a 3D image")
 
 
 def prepare_dicom_volume(study: StudyRead, settings: Settings) -> StudyVolumeRead:
@@ -113,6 +122,14 @@ def prepare_dicom_volume(study: StudyRead, settings: Settings) -> StudyVolumeRea
         )
 
     selected_entries = select_dicom_series(entries)
+    logs_path = volume_dir / "prepare.log"
+
+    if shutil.which("dcm2niix") is not None:
+        metadata = convert_dicom_with_dcm2niix(source_dir, output_path, logs_path)
+        metadata.update(get_selected_dicom_metadata(selected_entries))
+        metadata["source_type"] = "dicom"
+        return persist_prepared_volume(study, settings, metadata)
+
     selected_paths = [str(entry.path) for entry in sort_dicom_entries(selected_entries)]
 
     try:
@@ -122,10 +139,91 @@ def prepare_dicom_volume(study: StudyRead, settings: Settings) -> StudyVolumeRea
         sitk.WriteImage(image, str(output_path))
         metadata = compute_sitk_volume_metadata(image)
         metadata.update(get_selected_dicom_metadata(selected_entries))
+        metadata["source_type"] = "dicom"
+        logs_path.write_text("Prepared with SimpleITK. dcm2niix was not available.\n", encoding="utf-8")
     except Exception as exc:
+        logs_path.write_text(
+            f"Prepared with SimpleITK. dcm2niix was not available.\nerror={exc}\n",
+            encoding="utf-8",
+        )
         raise VolumeError(f"Failed to prepare DICOM volume: {exc}") from exc
 
     return persist_prepared_volume(study, settings, metadata)
+
+
+def convert_dicom_with_dcm2niix(
+    source_dir: Path,
+    output_path: Path,
+    logs_path: Path,
+) -> dict[str, Any]:
+    temp_dir = output_path.parent / "dcm2niix"
+    command = [
+        "dcm2niix",
+        "-z",
+        "y",
+        "-o",
+        str(temp_dir),
+        "-f",
+        "ct",
+        str(source_dir),
+    ]
+
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        write_prepare_log(logs_path, command, None, "", str(exc))
+        raise VolumeError(f"Failed to start dcm2niix: {exc}") from exc
+
+    write_prepare_log(logs_path, command, result.returncode, result.stdout, result.stderr)
+
+    if result.returncode != 0:
+        raise VolumeError(f"dcm2niix failed with return code {result.returncode}")
+
+    nifti_path = find_largest_nifti_file(temp_dir)
+
+    if nifti_path is None:
+        raise VolumeError("dcm2niix did not produce a NIfTI volume")
+
+    shutil.copy2(nifti_path, output_path)
+
+    try:
+        image = nib.load(str(output_path))
+    except Exception as exc:
+        raise VolumeError(f"Failed to read dcm2niix NIfTI output: {exc}") from exc
+
+    return compute_nifti_volume_metadata(image)
+
+
+def write_prepare_log(
+    logs_path: Path,
+    command: list[str],
+    returncode: int | None,
+    stdout: str,
+    stderr: str,
+) -> Path:
+    content = (
+        f"command={' '.join(command)}\n"
+        f"returncode={returncode}\n"
+        "\nstdout:\n"
+        f"{stdout}\n"
+        "\nstderr:\n"
+        f"{stderr}\n"
+    )
+
+    logs_path.write_text(content, encoding="utf-8")
+    return logs_path
+
+
+def find_largest_nifti_file(directory: Path) -> Path | None:
+    paths = [path for path in directory.rglob("*") if path.is_file() and is_nifti_file(path)]
+
+    if not paths:
+        return None
+
+    return max(paths, key=lambda path: path.stat().st_size)
 
 
 def persist_prepared_volume(
@@ -135,10 +233,16 @@ def persist_prepared_volume(
 ) -> StudyVolumeRead:
     study_dir = get_study_dir(settings.storage_root, study.id)
     metadata_path = study_dir / METADATA_RELATIVE_PATH
+    prepared_at = datetime.now(timezone.utc)
+    metadata = {
+        **metadata,
+        "prepared_at": prepared_at.isoformat(),
+    }
     updated_study = study.model_copy(
         update={
             "status": "prepared",
-            "updated_at": datetime.now(timezone.utc),
+            "updated_at": prepared_at,
+            "error": None,
             "prepared_volume": StudyPreparedVolumeManifestRead(
                 filename=VOLUME_FILENAME,
                 relative_path=VOLUME_RELATIVE_PATH,
@@ -183,6 +287,7 @@ def compute_nifti_volume_metadata(image: nib.Nifti1Image) -> dict[str, Any]:
         "spacing": [float(value) for value in spacing],
         "origin": [float(value) for value in origin],
         "direction": direction,
+        "affine": [[float(value) for value in row] for row in affine.tolist()],
         "intensity": intensity,
     }
 
@@ -196,6 +301,7 @@ def compute_sitk_volume_metadata(image: sitk.Image) -> dict[str, Any]:
         "spacing": [float(value) for value in image.GetSpacing()],
         "origin": [float(value) for value in image.GetOrigin()],
         "direction": [float(value) for value in image.GetDirection()],
+        "affine": None,
         "intensity": intensity,
     }
 

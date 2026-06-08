@@ -96,6 +96,7 @@ def create_ai_run(
         input=AiRunInputRead(prepared_volume_path=VOLUME_RELATIVE_PATH),
         output=None,
         error=None,
+        error_detail=None,
     )
 
     write_ai_run(run_dir, run)
@@ -140,6 +141,7 @@ def simulate_ai_run(study_id: str, run_id: str, settings: Settings) -> AiRunRead
             "updated_at": running_at,
             "started_at": running_at,
             "error": None,
+            "error_detail": None,
         }
     )
 
@@ -204,6 +206,7 @@ def run_pending_nnunet(
             "started_at": run.started_at or started_at,
             "updated_at": started_at,
             "error": None,
+            "error_detail": None,
         }
     )
 
@@ -211,6 +214,7 @@ def run_pending_nnunet(
 
     try:
         output = run_nnunet_prediction(running_run, study_dir, run_dir, module, settings)
+        publish_succeeded_nnunet_segmentation(running_run, study_dir, output, module, settings)
     except NnunetExecutionError as exc:
         failed_at = datetime.now(timezone.utc)
         failed_run = running_run.model_copy(
@@ -219,6 +223,7 @@ def run_pending_nnunet(
                 "updated_at": failed_at,
                 "finished_at": failed_at,
                 "error": exc.message,
+                "error_detail": exc.error_detail,
             }
         )
         write_ai_run(run_dir, failed_run)
@@ -236,6 +241,35 @@ def run_pending_nnunet(
 
     write_ai_run(run_dir, succeeded_run)
     return succeeded_run
+
+
+def publish_succeeded_nnunet_segmentation(
+    run: AiRunRead,
+    study_dir: Path,
+    output: AiRunOutputRead,
+    module: AiModuleDefinition,
+    settings: Settings,
+) -> None:
+    from app.segmentations.labels import TOTALSEG117_MODEL_ID
+    from app.segmentations.service import SegmentationError, create_segmentation_from_file
+
+    source_path = study_dir / output.result_path
+
+    try:
+        create_segmentation_from_file(
+            study_id=run.study_id,
+            source_path=source_path,
+            settings=settings,
+            source_run_id=run.id,
+            module_id=module.id,
+            module_name=module.name,
+            validate_against_volume=True,
+            source="ai",
+            model_id=TOTALSEG117_MODEL_ID,
+            segmentation_id="totalseg117",
+        )
+    except SegmentationError as exc:
+        raise NnunetExecutionError(f"Failed to publish nnU-Net segmentation: {exc.message}") from exc
 
 
 def get_existing_study_dir(settings: Settings, study_id: str) -> Path:

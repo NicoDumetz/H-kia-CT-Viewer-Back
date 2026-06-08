@@ -15,8 +15,7 @@
 #
 # =============================================================
 
-import shutil
-
+from app.ai.nnunet_executor import check_nnunet_available
 from app.ai.schemas import AiModuleDefinition, AiModuleListResponse, AiModuleNnunetConfig, AiModuleRead
 from app.core.config import Settings
 
@@ -82,6 +81,8 @@ def get_module(module_id: str) -> AiModuleDefinition | None:
 
 
 def to_module_read(module: AiModuleDefinition, settings: Settings) -> AiModuleRead:
+    is_available, availability_error = get_module_availability(module, settings)
+
     return AiModuleRead(
         id=module.id,
         name=module.name,
@@ -89,23 +90,30 @@ def to_module_read(module: AiModuleDefinition, settings: Settings) -> AiModuleRe
         description=module.description,
         input_type=module.input_type,
         output_type=module.output_type,
-        is_available=is_module_available(module, settings),
+        is_available=is_available,
+        availability_error=availability_error,
         runner=module.runner,
         labels=module.labels,
     )
 
 
 def is_module_available(module: AiModuleDefinition, settings: Settings) -> bool:
-    dataset = resolve_module_dataset(module, settings)
-    command_path = shutil.which(settings.nnunet_predict_command)
+    available, _ = get_module_availability(module, settings)
 
+    return available
+
+
+def get_module_availability(
+    module: AiModuleDefinition,
+    settings: Settings,
+) -> tuple[bool, str | None]:
     if module.id == "segmentation_label_hu_statistics":
-        return True
+        return True, None
 
     if module.runner != "nnunet":
-        return False
+        return False, "AI module is not available in this backend"
 
-    return settings.nnunet_enabled and command_path is not None and bool(dataset)
+    return check_nnunet_available(module, settings)
 
 
 def resolve_module_dataset(module: AiModuleDefinition, settings: Settings) -> str:

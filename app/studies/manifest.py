@@ -64,4 +64,5 @@ def to_list_item(study: StudyRead) -> StudyListItem:
         metadata=study.metadata,
         created_at=study.created_at,
         updated_at=study.updated_at,
+        error=study.error,
     )

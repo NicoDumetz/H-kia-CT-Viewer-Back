@@ -41,6 +41,7 @@ class AiModuleRead(BaseModel):
     input_type: str
     output_type: str
     is_available: bool
+    availability_error: str | None = None
     runner: AiModuleRunner
     labels: list[str] | None = None
 
@@ -86,6 +87,7 @@ class AiRunRead(BaseModel):
     input: AiRunInputRead
     output: AiRunOutputRead | None
     error: str | None
+    error_detail: str | None = None
 
 
 class AiRunListResponse(BaseModel):

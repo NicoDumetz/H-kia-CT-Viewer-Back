@@ -200,8 +200,18 @@ def test_settings(tmp_path: Path) -> Settings:
         storage_root=str(storage_root),
         backend_public_url="http://127.0.0.1:8000",
         nnunet_enabled=False,
+        nnunet_predict_command="nnUNetv2_predict",
+        nnunet_results_dir="",
+        nnunet_model_dir="model",
         nnunet_default_dataset="",
+        nnunet_default_configuration="3d_lowres",
+        nnunet_default_fold="0",
+        nnunet_default_checkpoint="checkpoint_best.pth",
+        nnunet_default_device="cpu",
+        nnunet_lowres_spacing_mm=1.9001551220814243,
+        nnunet_timeout_seconds=3600,
         ct_anatomy_labels_path="",
+        storage_tmp_ttl_hours=24,
     )
 
 
