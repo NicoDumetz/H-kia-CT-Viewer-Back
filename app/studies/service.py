@@ -123,7 +123,7 @@ async def create_imported_dicom_study(
     dicom_dir = study_dir / "source" / "dicom"
     dicom_dir.mkdir(parents=True, exist_ok=False)
     uploaded_paths = await save_upload_files(files, original_dir)
-    dicom_paths = prepare_dicom_source_files(uploaded_paths, dicom_dir)
+    dicom_paths = prepare_dicom_source_files(uploaded_paths, original_dir, dicom_dir)
     indexed_paths = uploaded_paths + dicom_paths
     input_type = detect_input_type(dicom_paths)
     metadata = extract_metadata(dicom_paths, input_type)
@@ -145,14 +145,19 @@ async def create_imported_dicom_study(
     return study
 
 
-def prepare_dicom_source_files(uploaded_paths: list[Path], dicom_dir: Path) -> list[Path]:
+def prepare_dicom_source_files(
+    uploaded_paths: list[Path],
+    upload_root: Path,
+    dicom_dir: Path,
+) -> list[Path]:
     dicom_paths: list[Path] = []
 
     for path in uploaded_paths:
         if is_zip_file(path):
             dicom_paths.extend(extract_zip_file(path, dicom_dir))
         else:
-            destination = dicom_dir / path.name
+            destination = dicom_dir / path.relative_to(upload_root)
+            destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, destination)
             dicom_paths.append(destination)
 

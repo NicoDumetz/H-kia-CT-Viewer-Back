@@ -126,13 +126,30 @@ def list_study_dirs(storage_root: str) -> list[Path]:
 
 
 def safe_filename(filename: str) -> str:
-    name = Path(filename).name
-    return name or "upload.bin"
+    return safe_upload_relative_path(filename).name
+
+
+def safe_upload_relative_path(filename: str) -> Path:
+    normalized_filename = filename.replace("\\", "/")
+    requested_path = Path(normalized_filename)
+
+    if requested_path.is_absolute() or ".." in requested_path.parts:
+        name = requested_path.name or "upload.bin"
+        return Path(name)
+
+    parts = [part for part in requested_path.parts if part not in {"", "."}]
+
+    if not parts:
+        return Path("upload.bin")
+
+    return Path(*parts)
 
 
 async def save_upload_file(upload_file: UploadFile, destination: Path) -> None:
     chunk_size = 1024 * 1024
     chunk = await upload_file.read(chunk_size)
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
 
     with destination.open("wb") as output:
         while chunk:
@@ -144,11 +161,13 @@ async def save_upload_file(upload_file: UploadFile, destination: Path) -> None:
 
 async def save_upload_files(files: list[UploadFile], source_dir: Path) -> list[Path]:
     saved_paths: list[Path] = []
-    used_names: set[str] = set()
+    used_paths: set[str] = set()
 
     for index, upload_file in enumerate(files, start=1):
-        filename = safe_filename(upload_file.filename or f"upload-{index}.bin")
-        destination = unique_destination(source_dir, filename, used_names)
+        relative_path = safe_upload_relative_path(
+            upload_file.filename or f"upload-{index}.bin"
+        )
+        destination = unique_destination(source_dir, relative_path, used_paths)
 
         await save_upload_file(upload_file, destination)
         saved_paths.append(destination)
@@ -156,15 +175,17 @@ async def save_upload_files(files: list[UploadFile], source_dir: Path) -> list[P
     return saved_paths
 
 
-def unique_destination(source_dir: Path, filename: str, used_names: set[str]) -> Path:
-    path = source_dir / filename
+def unique_destination(source_dir: Path, relative_path: Path, used_paths: set[str]) -> Path:
+    path = source_dir / relative_path
     stem = path.stem
     suffix = path.suffix
     counter = 1
+    relative_key = path.relative_to(source_dir).as_posix()
 
-    while path.name in used_names or path.exists():
-        path = source_dir / f"{stem}-{counter}{suffix}"
+    while relative_key in used_paths or path.exists():
+        path = source_dir / relative_path.parent / f"{stem}-{counter}{suffix}"
+        relative_key = path.relative_to(source_dir).as_posix()
         counter += 1
 
-    used_names.add(path.name)
+    used_paths.add(relative_key)
     return path
