@@ -16,6 +16,7 @@
 # =============================================================
 
 import json
+import math
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -130,17 +131,23 @@ def prepare_dicom_volume(study: StudyRead, settings: Settings) -> StudyVolumeRea
         metadata["source_type"] = "dicom"
         return persist_prepared_volume(study, settings, metadata)
 
-    selected_paths = [str(entry.path) for entry in sort_dicom_entries(selected_entries)]
+    sorted_entries = sort_dicom_entries(selected_entries)
+    selected_paths = [str(entry.path) for entry in sorted_entries]
+    spacing_diagnostic = compute_dicom_spacing_diagnostic(sorted_entries)
 
     try:
         reader = sitk.ImageSeriesReader()
         reader.SetFileNames(selected_paths)
-        image = reader.Execute()
+        image = execute_sitk_reader_without_warnings(reader)
         sitk.WriteImage(image, str(output_path))
         metadata = compute_sitk_volume_metadata(image)
         metadata.update(get_selected_dicom_metadata(selected_entries))
+        metadata.update(spacing_diagnostic)
         metadata["source_type"] = "dicom"
-        logs_path.write_text("Prepared with SimpleITK. dcm2niix was not available.\n", encoding="utf-8")
+        logs_path.write_text(
+            build_simpleitk_prepare_log(spacing_diagnostic),
+            encoding="utf-8",
+        )
     except Exception as exc:
         logs_path.write_text(
             f"Prepared with SimpleITK. dcm2niix was not available.\nerror={exc}\n",
@@ -306,6 +313,35 @@ def compute_sitk_volume_metadata(image: sitk.Image) -> dict[str, Any]:
     }
 
 
+def execute_sitk_reader_without_warnings(reader: sitk.ImageSeriesReader) -> sitk.Image:
+    get_warning_display = getattr(sitk, "ProcessObject_GetGlobalWarningDisplay", None)
+    set_warning_display = getattr(sitk, "ProcessObject_SetGlobalWarningDisplay", None)
+
+    if get_warning_display is None or set_warning_display is None:
+        return reader.Execute()
+
+    warnings_were_enabled = get_warning_display()
+    set_warning_display(False)
+
+    try:
+        return reader.Execute()
+    finally:
+        set_warning_display(warnings_were_enabled)
+
+
+def build_simpleitk_prepare_log(spacing_diagnostic: dict[str, Any]) -> str:
+    lines = ["Prepared with SimpleITK. dcm2niix was not available."]
+    maximum_nonuniformity = spacing_diagnostic.get("dicom_maximum_nonuniformity_mm")
+
+    if maximum_nonuniformity is not None and maximum_nonuniformity > 0:
+        lines.append(
+            "DICOM slice spacing is non-uniform or slices may be missing; "
+            f"maximum_nonuniformity_mm={maximum_nonuniformity:.6f}"
+        )
+
+    return "\n".join(lines) + "\n"
+
+
 def compute_intensity_stats(data: np.ndarray) -> VolumeIntensityRead:
     array = np.asarray(data)
 
@@ -422,13 +458,105 @@ def dicom_series_priority(entries: list[DicomVolumeEntry]) -> tuple[bool, int, b
 
 
 def sort_dicom_entries(entries: list[DicomVolumeEntry]) -> list[DicomVolumeEntry]:
-    return sorted(entries, key=dicom_sort_key)
+    normal = get_dicom_slice_normal(entries)
+
+    if normal is not None:
+        return sorted(entries, key=lambda entry: dicom_position_sort_key(entry, normal))
+
+    return sorted(entries, key=dicom_instance_sort_key)
 
 
-def dicom_sort_key(entry: DicomVolumeEntry) -> tuple[bool, int, str]:
+def dicom_position_sort_key(
+    entry: DicomVolumeEntry,
+    normal: tuple[float, float, float],
+) -> tuple[bool, float, bool, int, str]:
+    position = get_dicom_float_list(entry.dataset, "ImagePositionPatient")
+    instance_number = get_dicom_int(entry.dataset, "InstanceNumber")
+
+    if position is None or len(position) < 3:
+        return (True, 0.0, instance_number is None, instance_number or 0, entry.path.name)
+
+    projected_position = sum(position[index] * normal[index] for index in range(3))
+
+    return (
+        False,
+        projected_position,
+        instance_number is None,
+        instance_number or 0,
+        entry.path.name,
+    )
+
+
+def dicom_instance_sort_key(entry: DicomVolumeEntry) -> tuple[bool, int, str]:
     instance_number = get_dicom_int(entry.dataset, "InstanceNumber")
 
     return (instance_number is None, instance_number or 0, entry.path.name)
+
+
+def compute_dicom_spacing_diagnostic(entries: list[DicomVolumeEntry]) -> dict[str, Any]:
+    normal = get_dicom_slice_normal(entries)
+
+    if normal is None:
+        return {}
+
+    positions = [
+        get_projected_dicom_position(entry, normal)
+        for entry in entries
+    ]
+    valid_positions = [position for position in positions if position is not None]
+
+    if len(valid_positions) < 3:
+        return {}
+
+    spacings = [
+        abs(valid_positions[index + 1] - valid_positions[index])
+        for index in range(len(valid_positions) - 1)
+    ]
+    median_spacing = float(np.median(spacings))
+
+    if median_spacing == 0:
+        return {}
+
+    maximum_nonuniformity = max(abs(spacing - median_spacing) for spacing in spacings)
+
+    return {
+        "dicom_slice_spacing_mm": median_spacing,
+        "dicom_maximum_nonuniformity_mm": float(maximum_nonuniformity),
+    }
+
+
+def get_projected_dicom_position(
+    entry: DicomVolumeEntry,
+    normal: tuple[float, float, float],
+) -> float | None:
+    position = get_dicom_float_list(entry.dataset, "ImagePositionPatient")
+
+    if position is None or len(position) < 3:
+        return None
+
+    return float(sum(position[index] * normal[index] for index in range(3)))
+
+
+def get_dicom_slice_normal(entries: list[DicomVolumeEntry]) -> tuple[float, float, float] | None:
+    for entry in entries:
+        orientation = get_dicom_float_list(entry.dataset, "ImageOrientationPatient")
+
+        if orientation is None or len(orientation) < 6:
+            continue
+
+        row = orientation[:3]
+        column = orientation[3:6]
+        normal = (
+            row[1] * column[2] - row[2] * column[1],
+            row[2] * column[0] - row[0] * column[2],
+            row[0] * column[1] - row[1] * column[0],
+        )
+        length = math.sqrt(sum(value * value for value in normal))
+
+        if length:
+            return tuple(value / length for value in normal)
+
+    return None
 
 
 def build_prepared_volume(study_id: str, metadata: VolumeMetadataRead) -> PreparedVolumeRead:
@@ -471,5 +599,20 @@ def get_dicom_int(dataset: pydicom.Dataset, field_name: str) -> int | None:
 
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_dicom_float_list(dataset: pydicom.Dataset, field_name: str) -> list[float] | None:
+    value = getattr(dataset, field_name, None)
+
+    if value is None:
+        return None
+
+    if not isinstance(value, (list, tuple, pydicom.multival.MultiValue)):
+        return None
+
+    try:
+        return [float(item) for item in value]
     except (TypeError, ValueError):
         return None

@@ -2,6 +2,13 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
+from pydicom.dataset import Dataset
+
+from app.studies.volume import (
+    DicomVolumeEntry,
+    compute_dicom_spacing_diagnostic,
+    sort_dicom_entries,
+)
 
 
 def test_prepare_nifti_volume_creates_volume_and_metadata(client, import_nifti):
@@ -62,3 +69,45 @@ def test_prepare_unknown_input_returns_422(client, import_unknown):
     response = client.post(f"/studies/{study['id']}/prepare")
 
     assert response.status_code == 422
+
+
+def test_sort_dicom_entries_uses_image_position_before_instance_number(tmp_path):
+    entries = [
+        build_dicom_volume_entry(tmp_path / "slice-3.dcm", instance_number=1, z=3.0),
+        build_dicom_volume_entry(tmp_path / "slice-1.dcm", instance_number=3, z=1.0),
+        build_dicom_volume_entry(tmp_path / "slice-2.dcm", instance_number=2, z=2.0),
+    ]
+
+    sorted_entries = sort_dicom_entries(entries)
+
+    assert [entry.path.name for entry in sorted_entries] == [
+        "slice-1.dcm",
+        "slice-2.dcm",
+        "slice-3.dcm",
+    ]
+
+
+def test_compute_dicom_spacing_diagnostic_reports_nonuniformity(tmp_path):
+    entries = [
+        build_dicom_volume_entry(tmp_path / "slice-1.dcm", instance_number=1, z=0.0),
+        build_dicom_volume_entry(tmp_path / "slice-2.dcm", instance_number=2, z=1.0),
+        build_dicom_volume_entry(tmp_path / "slice-3.dcm", instance_number=3, z=2.5),
+    ]
+
+    diagnostic = compute_dicom_spacing_diagnostic(sort_dicom_entries(entries))
+
+    assert diagnostic["dicom_slice_spacing_mm"] == 1.25
+    assert diagnostic["dicom_maximum_nonuniformity_mm"] == 0.25
+
+
+def build_dicom_volume_entry(
+    path: Path,
+    instance_number: int,
+    z: float,
+) -> DicomVolumeEntry:
+    dataset = Dataset()
+    dataset.InstanceNumber = instance_number
+    dataset.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]
+    dataset.ImagePositionPatient = [0, 0, z]
+
+    return DicomVolumeEntry(path=path, dataset=dataset)
