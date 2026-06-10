@@ -16,7 +16,6 @@
 # =============================================================
 
 from pathlib import Path
-from typing import Any
 
 import nibabel as nib
 import numpy as np
@@ -89,14 +88,27 @@ def compute_label_stats(
     label_names: dict[int, str],
 ) -> list[SegmentationLabelRead]:
     labels: list[SegmentationLabelRead] = []
-    label_values = get_foreground_labels(array)
     voxel_volume = compute_voxel_volume(spacing)
+    foreground_coordinates = np.argwhere(array != 0)
 
-    for label_value in label_values:
+    if foreground_coordinates.size == 0:
+        return labels
+
+    foreground_values = array[tuple(foreground_coordinates.T)]
+    sort_order = np.argsort(foreground_values, kind="stable")
+    sorted_values = foreground_values[sort_order]
+    sorted_coordinates = foreground_coordinates[sort_order]
+    label_values, first_indices, counts = np.unique(
+        sorted_values,
+        return_index=True,
+        return_counts=True,
+    )
+
+    for label_value, first_index, count in zip(label_values, first_indices, counts):
         label_id = int(label_value)
         label_name = get_label_name(label_id, label_names)
-        coordinates = np.argwhere(array == label_value)
-        voxel_count = int(coordinates.shape[0])
+        coordinates = sorted_coordinates[first_index : first_index + count]
+        voxel_count = int(count)
         labels.append(
             SegmentationLabelRead(
                 id=label_id,
@@ -114,13 +126,6 @@ def compute_label_stats(
         )
 
     return labels
-
-
-def get_foreground_labels(array: np.ndarray) -> list[Any]:
-    labels = np.unique(array)
-    foreground_labels = [value for value in labels if value != 0]
-
-    return sorted(foreground_labels, key=lambda value: float(value))
 
 
 def compute_voxel_volume(spacing: list[float]) -> float:
