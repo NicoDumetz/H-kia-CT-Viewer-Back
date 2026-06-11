@@ -23,6 +23,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     storage_root: str = "storage/studies"
     backend_public_url: str = "http://127.0.0.1:8000"
+    cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_allow_origin_regex: str = (
+        r"^https?://("
+        r"localhost|127\.0\.0\.1|0\.0\.0\.0|"
+        r"10(?:\.\d{1,3}){3}|"
+        r"192\.168(?:\.\d{1,3}){2}|"
+        r"172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}"
+        r")(?::\d+)?$"
+    )
     nnunet_enabled: bool = False
     nnunet_predict_command: str = "nnUNetv2_predict"
     nnunet_results_dir: str = ""
@@ -45,3 +54,11 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_cors_allow_origins(settings: Settings) -> list[str]:
+    return [
+        origin.strip()
+        for origin in settings.cors_allow_origins.split(",")
+        if origin.strip()
+    ]

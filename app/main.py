@@ -20,17 +20,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.router import router as ai_router
 from app.analyses.router import router as analyses_router
+from app.core.config import get_cors_allow_origins, get_settings
 from app.measurements.router import router as measurements_router
 from app.segmentations.router import router as segmentations_router
 from app.studies.router import router as studies_router
 from app.workspace.router import router as workspace_router
 
 
+settings = get_settings()
 app = FastAPI(title="Hekia CT Viewer API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=get_cors_allow_origins(settings),
+    allow_origin_regex=settings.cors_allow_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
